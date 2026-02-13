@@ -10,6 +10,7 @@ const {
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
+const PUBLIC_ROOT = path.resolve(PUBLIC_DIR);
 const SAVE_PATH = path.join(__dirname, "data", "latest.json");
 const SIM_DEBUG = process.env.SIM_DEBUG === "1";
 const SIM_DEBUG_VERBOSE = process.env.SIM_DEBUG_VERBOSE === "1";
@@ -38,6 +39,8 @@ const sim = new Simulation({
   ...(SIM_DEBUG_EVERY ? { debugMetricsEvery: SIM_DEBUG_EVERY } : {})
 }, persisted);
 
+let saveQueue = Promise.resolve();
+
 setInterval(() => {
   sim.step();
   if (sim.consumePendingSaveFlag()) {
@@ -46,7 +49,11 @@ setInterval(() => {
       keyframeLimit: 60,
       includeKeyframes: true
     });
-    saveLatestAtomic(SAVE_PATH, payload);
+    saveQueue = saveQueue
+      .then(() => saveLatestAtomic(SAVE_PATH, payload))
+      .catch((err) => {
+        console.error("Failed to persist latest state:", err);
+      });
   }
 }, 50);
 
@@ -65,15 +72,36 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function serveStatic(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  let pathname = decodeURIComponent(url.pathname);
+function getRequestUrl(req) {
+  const host = req.headers.host || `localhost:${PORT}`;
+  try {
+    return new URL(req.url, `http://${host}`);
+  } catch (_) {
+    return null;
+  }
+}
+
+function serveStatic(url, res) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch (_) {
+    sendJson(res, 400, { error: "Bad request" });
+    return;
+  }
   if (pathname === "/") {
     pathname = "/index.html";
   }
 
-  const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  const relativePath = pathname.startsWith("/")
+    ? `.${pathname}`
+    : pathname;
+  const filePath = path.resolve(PUBLIC_ROOT, relativePath);
+  const inPublicRoot = (
+    filePath === PUBLIC_ROOT ||
+    filePath.startsWith(`${PUBLIC_ROOT}${path.sep}`)
+  );
+  if (!inPublicRoot) {
     sendJson(res, 403, { error: "Forbidden" });
     return;
   }
@@ -91,7 +119,11 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = getRequestUrl(req);
+  if (!url) {
+    sendJson(res, 400, { error: "Bad request" });
+    return;
+  }
 
   if (url.pathname === "/api/state") {
     const since = url.searchParams.get("since");
@@ -109,7 +141,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  serveStatic(req, res);
+  serveStatic(url, res);
 });
 
 server.listen(PORT, () => {

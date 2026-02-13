@@ -1,26 +1,29 @@
 const fs = require("fs");
 const path = require("path");
+const fsp = fs.promises;
 
 function ensureDirectory(filePath) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
 }
 
-function saveLatestAtomic(filePath, payload) {
+async function saveLatestAtomic(filePath, payload) {
   ensureDirectory(filePath);
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(payload));
+  await fsp.writeFile(tmpPath, JSON.stringify(payload), "utf-8");
+  let renamed = false;
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
-    fs.copyFileSync(tmpPath, filePath);
-    try {
-      fs.unlinkSync(tmpPath);
-    } catch (_) {
-      // cleanup on Windows file-lock edge cases
+    await fsp.rename(tmpPath, filePath);
+    renamed = true;
+  } catch (_) {
+    await fsp.copyFile(tmpPath, filePath);
+  } finally {
+    if (!renamed) {
+      try {
+        await fsp.unlink(tmpPath);
+      } catch (_) {
+        // cleanup on Windows file-lock edge cases
+      }
     }
   }
 }

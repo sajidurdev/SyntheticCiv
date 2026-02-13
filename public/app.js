@@ -43,6 +43,7 @@ let liveMode = true;
 let replayTimer = null;
 let selectedSettlementId = null;
 let lastFetchedTick = null;
+let fetchInFlight = false;
 let showInfluenceHeatmap = true;
 let hoveredEraId = null;
 let hoveredEraData = null;
@@ -2744,21 +2745,29 @@ function renderGlobalCharts() {
 }
 
 async function fetchState() {
+  if (fetchInFlight) {
+    return;
+  }
+  fetchInFlight = true;
+  const requestSince = lastFetchedTick;
   try {
-    const query = lastFetchedTick == null ? "" : `?since=${lastFetchedTick}`;
+    const query = requestSince == null ? "" : `?since=${requestSince}`;
     const res = await fetch(`/api/state${query}`);
     if (!res.ok) return;
     const data = await res.json();
-    data.snapshots.forEach((snapshot) => {
+    const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+    snapshots.forEach((snapshot) => {
       world = snapshot.world || world;
       addSnapshot(snapshot);
     });
-    if (data.snapshots.length) {
-      const newest = data.snapshots[data.snapshots.length - 1];
-      latestTick = newest.tick;
-      lastFetchedTick = newest.tick;
+    if (snapshots.length) {
+      const newest = snapshots[snapshots.length - 1];
+      latestTick = Math.max(latestTick, newest.tick || 0);
+      if (lastFetchedTick == null || newest.tick > lastFetchedTick) {
+        lastFetchedTick = newest.tick;
+      }
     } else {
-      latestTick = data.latestTick || latestTick;
+      latestTick = Math.max(latestTick, data.latestTick || 0);
     }
 
     if (liveMode && ticks.length) {
@@ -2767,6 +2776,8 @@ async function fetchState() {
     updateTimelineBounds();
   } catch (err) {
     console.error("state fetch error", err);
+  } finally {
+    fetchInFlight = false;
   }
 }
 

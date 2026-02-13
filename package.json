@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "sweep": "node scripts/regressionSweep.js --mode sweep",
-    "regression": "node scripts/regressionSweep.js --mode regression"
+    "regression": "node scripts/regressionSweep.js --mode regression",
+    "test": "npm run regression"
   },
   "license": "MIT"
 }
