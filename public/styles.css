@@ -1,4 +1,5 @@
 :root {
+  --ui-scale: 0.67;
   --bg-0: #090b0f;
   --bg-1: #10141a;
   --bg-2: #151b23;
@@ -33,11 +34,16 @@ body {
 }
 
 .app-shell {
-  width: 100%;
-  height: 100%;
-  position: relative;
+  --app-scale: var(--ui-scale, 1);
+  width: calc(100% / var(--app-scale));
+  height: calc(100% / var(--app-scale));
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
+  transform: scale(var(--app-scale));
+  transform-origin: top left;
 }
 
 .app-shell>.viewport {
