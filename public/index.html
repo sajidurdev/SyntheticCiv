@@ -1,0 +1,123 @@
+﻿<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Synthetic Civilization Observatory</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <div class="app-shell">
+    <header class="top-bar">
+      <div class="top-group">
+        <button id="playPauseBtn" class="btn btn-primary">Pause</button>
+        <button id="globalDashBtn" class="btn">Global Data</button>
+      </div>
+      <div class="top-status">
+        <div class="status-item">
+          <span class="status-label">Current Era</span>
+          <span id="eraStatus" class="status-value">Stabilization Era</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">World Situation</span>
+          <span id="worldSummary" class="status-value muted">Initializing synthetic world...</span>
+        </div>
+      </div>
+      <div id="tickBadge" class="tick-badge">Tick 0</div>
+    </header>
+
+    <main class="viewport">
+      <section class="world-shell">
+        <canvas id="worldCanvas"></canvas>
+        <div id="civSummaryStrip" class="civ-summary-strip">Initializing...</div>
+      </section>
+      <div id="linkModeBar" class="link-mode-container" aria-label="Link View Controls">
+        <button class="link-mode-btn active" data-link-mode="all" type="button">All</button>
+        <button class="link-mode-btn" data-link-mode="trade" type="button">Trade</button>
+        <button class="link-mode-btn" data-link-mode="diplomacy" type="button">Diplomacy</button>
+        <button class="link-mode-btn" data-link-mode="migration" type="button">Migration</button>
+        <button class="link-mode-btn" data-link-mode="knowledge" type="button">Knowledge</button>
+      </div>
+
+      <!-- Floating Panels Container -->
+      <div class="floating-panels">
+        <aside id="inspectorPanel" class="inspector-panel hidden">
+          <div class="panel-header">
+            <span>Contextual Inspector</span>
+            <button id="inspectorClose" class="icon-btn" type="button">&times;</button>
+          </div>
+          <div id="settlementInfo" class="panel-content">
+            <div class="empty">Click a settlement or civilization region to inspect.</div>
+          </div>
+        </aside>
+
+        <aside id="civilizationMatrixPanel" class="matrix-panel">
+          <div class="panel-header" id="matrixToggle">
+            <span>Civilization Matrix</span>
+            <button class="icon-btn toggle-btn">-</button>
+          </div>
+          <div class="panel-content panel-scroll">
+            <section>
+              <h3>Civilization Relations</h3>
+              <div id="relationsList" class="list"></div>
+            </section>
+            <section>
+              <h3>Trade Corridor Summary</h3>
+              <div id="tradeSummary" class="list"></div>
+            </section>
+            <section>
+              <h3>Recent Events</h3>
+              <div id="eventsList" class="list events"></div>
+            </section>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Global Dashboard Overlay -->
+      <div id="globalDashboard" class="global-dashboard hidden">
+        <div class="dashboard-content">
+          <h2>Global Observatory Trends</h2>
+          <div class="charts-grid">
+            <div class="chart-card">
+              <h3>Global Population</h3>
+              <canvas id="chartPop"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Avg Stability</h3>
+              <canvas id="chartStab"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Conflict Rate</h3>
+              <canvas id="chartConflict"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Total Wealth</h3>
+              <canvas id="chartWealth"></canvas>
+            </div>
+          </div>
+          <button id="closeDashBtn" class="btn btn-primary" style="margin-top: 20px;">Close Dashboard</button>
+        </div>
+      </div>
+
+    </main>
+    <aside id="eraDetailPanel" class="era-detail-panel" aria-live="polite"></aside>
+    <div id="eraHistoryList" class="era-history-panel" aria-label="Era Timeline"></div>
+
+    <footer class="timeline-bar">
+      <div class="timeline-controls">
+        <button id="liveBtn" class="btn">Live</button>
+        <button id="replayBtn" class="btn">Replay</button>
+      </div>
+      <div class="timeline-track-wrap">
+        <input id="timelineSlider" type="range" min="0" max="0" value="0" />
+        <div id="timelineEvents" class="timeline-events"></div>
+      </div>
+      <span id="timelineLabel" class="timeline-label">Tick 0</span>
+    </footer>
+  </div>
+  <script src="./app.js"></script>
+</body>
+
+</html>

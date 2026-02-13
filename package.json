@@ -1,0 +1,12 @@
+{
+  "name": "synthetic-civilization-simulator",
+  "version": "1.0.0",
+  "description": "Emergent civilization simulator with strategic world-view dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "sweep": "node scripts/regressionSweep.js --mode sweep",
+    "regression": "node scripts/regressionSweep.js --mode regression"
+  },
+  "license": "MIT"
+}
