@@ -107,7 +107,8 @@ SIM_DEBUG=1 npm start
 * [x] Spatial indexing for agent proximity
 * [x] Dynamic trade route formation
 * [x] Civilization diplomacy matrix
-* [ ] Religion & Culture (planned)
+* [x] Culture
+* [ ] Religion (planned)
 * [ ] Climate systems (planned)
 
 ---
