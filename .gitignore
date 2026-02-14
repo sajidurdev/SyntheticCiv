@@ -3,3 +3,5 @@ npm-debug.log*
 
 data/latest.json
 data/*.tmp
+wasm/influence_kernel/target/
+wasm/influence_kernel/target*/
