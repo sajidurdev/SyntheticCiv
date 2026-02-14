@@ -245,11 +245,6 @@ function computeInfluenceSteering(position, settlements, options = {}) {
   return { x: unit.x, y: unit.y, magnitude: clamp01(totalW) };
 }
 
-function dominantInfluenceSettlementId(position, settlements, options = {}) {
-  const top = computeTopInfluenceSources(position, settlements, options);
-  return top.top?.id || null;
-}
-
 function computeTopInfluenceSources(position, settlements, options = {}) {
   const activeSettlements = settlements.filter(isSettlementActive);
   if (!activeSettlements.length) {
@@ -290,7 +285,6 @@ module.exports = {
   influenceAtPosition,
   scoreMoveWithInfluence,
   computeInfluenceSteering,
-  dominantInfluenceSettlementId,
   computeTopInfluenceSources,
   getClosestSettlements
 };

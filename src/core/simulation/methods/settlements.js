@@ -1,68 +1,19 @@
 const {
-  RollingCounter,
   updateSettlementMembership,
   computeSettlementMetrics,
-  createSettlementWindows,
-  hydrateSettlementWindows,
-  serializeSettlementWindows,
   computeInfluenceStrengths,
-  scoreMoveWithInfluence,
-  computeInfluenceSteering,
   computeTopInfluenceSources,
-  applyAgentEvent,
-  decayAgentRelations,
-  getSentiment,
-  updateCivRelationsEMA,
-  accumulateCivDelta,
-  pairKey,
-  buildKeyframe,
-  buildSettlementVisualSignals,
-  buildMigrationStreams,
-  buildInfluenceAura,
-  buildCivVisualSignatures,
-  ensureCulture,
-  updateCivilizationCultures,
   classifySettlementRoles,
-  updateCivilizationStrategies,
-  ensureStrategyModifiers,
-  ensureCivilizationPolicy,
-  ensurePolicyDrift,
-  updateCivilizationPolicies,
-  applyCivilizationPolicyEffects,
-  stepDemographics,
   isSettlementActive,
-  isSettlementRuined,
-  compressHistory,
-  economyStep,
   ensureSettlementEconomyState,
   defaultResources,
   ensureRegionalState,
-  computeRegionalInfluence,
   ensureInfluenceSaturationState,
-  computeInfluenceSaturation,
-  ensureCivilizationFactions,
-  updateCivilizationFactions,
   ensureSettlementInnovationState,
-  stepInnovation,
   ensureSettlementShockState,
-  stepShockSystem,
-  ensureCivAlignment,
-  createStrategicAlignmentState,
-  serializeStrategicAlignmentState,
-  computeStrategicAlignment,
-  getPairDisposition,
-  createEraHistoryState,
-  hydrateEraHistoryState,
-  serializeEraHistoryState,
-  updateEraHistoryState,
-  getEraHistorySnapshot,
   RESOURCE_TYPES,
-  STATE_SCHEMA_VERSION,
   clamp,
-  distSq,
-  createPopulationCounterSet,
-  createBirthDiagnosticsWindow,
-  createDeathDiagnosticsWindow
+  distSq
 } = require("../scope");
 
 class SettlementSimulationMethods {
@@ -630,18 +581,6 @@ class SettlementSimulationMethods {
 
   getActiveSettlements() {
     return this.settlements.filter(isSettlementActive);
-  }
-
-
-  getViableSettlements() {
-    return this.settlements.filter((settlement) => {
-      if (isSettlementActive(settlement)) {
-        return true;
-      }
-      const resources = settlement.resources || {};
-      const stockpile = (resources.food || 0) + (resources.materials || 0) + (resources.wealth || 0);
-      return stockpile >= this.viabilityThreshold;
-    });
   }
 
 

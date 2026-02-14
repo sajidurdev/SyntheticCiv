@@ -6,11 +6,6 @@ function pairKey(a, b) {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
-function parseAgentId(rawId) {
-  const parsed = Number(rawId);
-  return Number.isFinite(parsed) ? parsed : rawId;
-}
-
 function toRelationObject(entry, tick = 0) {
   if (!entry && entry !== 0) {
     return { trust: 0, momentum: 0, lastTick: tick };
@@ -137,6 +132,5 @@ module.exports = {
   updateCivRelationsEMA,
   accumulateCivDelta,
   toRelationObject,
-  parseAgentId,
   pairKey
 };
