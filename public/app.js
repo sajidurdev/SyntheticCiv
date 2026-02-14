@@ -770,9 +770,16 @@ function drawTradeRoutes(routes, tick, selectionContext = null) {
       from: route.from,
       to: route.to,
       volume: route.tradeVolume || 0,
-      reliability: route.routeReliability || 0,
-      momentum: route.routeMomentum || 0,
-      distance: route.distance || Math.hypot((route.toPosition?.x || 0) - (route.fromPosition?.x || 0), (route.toPosition?.y || 0) - (route.fromPosition?.y || 0)),
+      reliability: Number.isFinite(route.routeReliability) ? route.routeReliability : 0,
+      momentum: Number.isFinite(route.routeMomentum) ? route.routeMomentum : 0,
+      distance: Number.isFinite(route.routeDistance)
+        ? route.routeDistance
+        : (Number.isFinite(route.distance)
+          ? route.distance
+          : Math.hypot(
+            (route.toPosition?.x || 0) - (route.fromPosition?.x || 0),
+            (route.toPosition?.y || 0) - (route.fromPosition?.y || 0)
+          )),
       width,
       hitWidth: Math.max(8, width + 6),
       style: isDirect ? "direct" : "standard",
@@ -1420,7 +1427,7 @@ function describeHoveredLine(target) {
       title: `Trade Route S${target.from} -> S${target.to}`,
       lines: [
         `Flow ${toDecimal(target.volume || 0, 2)}  |  Reliability ${toDecimal(target.reliability || 0, 2)}`,
-        `Momentum ${toDecimal(target.momentum || 0, 2)}  |  Distance ${toDecimal(target.distance || 0, 1)}`,
+        `Momentum ${toAdaptiveDecimal(target.momentum || 0, 4, 4)}  |  Distance ${toDecimal(target.distance || 0, 1)}`,
         tone
       ],
       color: "rgba(124, 236, 255, 0.95)"
@@ -1815,6 +1822,15 @@ function toSignedPercent(value, digits = 1) {
 
 function toDecimal(value, digits = 2) {
   const num = Number.isFinite(value) ? value : 0;
+  return num.toFixed(digits);
+}
+
+function toAdaptiveDecimal(value, digits = 2, tinyDigits = 4) {
+  const num = Number.isFinite(value) ? value : 0;
+  const threshold = 10 ** (-digits);
+  if (num !== 0 && Math.abs(num) < threshold) {
+    return num.toFixed(tinyDigits);
+  }
   return num.toFixed(digits);
 }
 
@@ -2280,7 +2296,7 @@ function renderRelationsPanel(snapshot) {
             <div class="route-title">${settlementLabel(route.from)} -> ${settlementLabel(route.to)}</div>
             <div class="matrix-grid">
               ${renderMatrixMetric("Trade Flow", toDecimal(route.tradeVolume || 0, 2))}
-              ${renderMatrixMetric("Route Momentum", toDecimal(route.routeMomentum || 0, 2))}
+              ${renderMatrixMetric("Route Momentum", toAdaptiveDecimal(route.routeMomentum || 0, 4, 4))}
               ${renderMatrixMetric("Reliability", toDecimal(route.routeReliability || 0, 2))}
               ${renderMatrixMetric("Knowledge Gap", `${(diffusion * 100).toFixed(0)}%`)}
             </div>
@@ -2726,7 +2742,12 @@ function renderGlobalCharts() {
   });
   const wealthData = samples.map(s => {
     const sets = s.settlements || [];
-    return sets.reduce((sum, set) => sum + (set.wealth || 0), 0);
+    return sets.reduce((sum, set) => {
+      if (set?.resources && Number.isFinite(set.resources.wealth)) {
+        return sum + set.resources.wealth;
+      }
+      return sum + (Number.isFinite(set?.wealth) ? set.wealth : 0);
+    }, 0);
   });
 
   const dpr = window.devicePixelRatio || 1;

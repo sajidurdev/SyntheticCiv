@@ -270,7 +270,7 @@ canvas {
 .civ-summary-strip {
   position: absolute;
   left: 20px;
-  top: 12px;
+  top: 62px;
   right: auto;
   z-index: 25;
   display: flex;
@@ -1131,6 +1131,10 @@ input[type="range"]::-webkit-slider-thumb {
     top: 10px;
     max-width: calc(100vw - 24px);
   }
+
+  .civ-summary-strip {
+    top: 56px;
+  }
 }
 
 @media (max-width: 1120px) {
@@ -1150,6 +1154,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 @media (max-width: 960px) {
+  .civ-summary-strip {
+    left: 8px;
+    top: 56px;
+    max-width: calc(100vw - 16px);
+  }
+
   .link-mode-container {
     left: 8px;
     right: 8px;
