@@ -106,10 +106,15 @@ SIM_DEBUG=1 npm start
 * [x] Deterministic RNG
 * [x] Spatial indexing for agent proximity
 * [x] Dynamic trade route formation
+* [x] Settlement-level market pricing (local, emergent)
+* [x] Price-aware barter valuation
+* [x] Route arbitrage / price-gap coupling
 * [x] Civilization diplomacy matrix
 * [x] Culture
-* [ ] Religion (planned)
-* [ ] Climate systems (planned)
+* [x] Deterministic market update ordering
+* [x] Settlement market inspector panel
+* [ ] Merchant arbitrage agents (planned)
+* [ ] Cross-settlement price diffusion (planned)
 
 ---
 
