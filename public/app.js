@@ -2097,6 +2097,14 @@ function renderSettlementPanel(snapshot) {
   const migrationNetRate = settlement.migrationNetRate || 0;
   const infoHealth = clamp01((1 - economicStress) * 0.5 + (settlement.tradeConsistency || 0) * 0.5);
   const tradeHealth = computeSettlementTradeHealth(snapshot, settlement);
+  const marketPrices = settlement.market?.prices || { food: 1, materials: 1, wealth: 1 };
+  const marketVolatility = settlement.market?.volatility ?? 0.03;
+  const marketRows = `
+      ${renderMetricRow("Food Price", toDecimal(marketPrices.food || 1, 3))}
+      ${renderMetricRow("Materials Price", toDecimal(marketPrices.materials || 1, 3))}
+      ${renderMetricRow("Wealth Price", toDecimal(marketPrices.wealth || 1, 3))}
+      ${renderMetricRow("Price Volatility", toDecimal(marketVolatility, 3))}
+  `;
 
   const simplifiedOverview = renderKeyValueGrid([
     { label: "Population", value: String(settlement.population || 0) },
@@ -2158,6 +2166,8 @@ function renderSettlementPanel(snapshot) {
       
       <div class="panel-subtitle">Details</div>
       ${simplifiedDetails}
+      <div class="panel-subtitle">Local Market</div>
+      ${marketRows}
       <div class="panel-subtitle">Current Signals</div>
       ${simplifiedSignals}
 

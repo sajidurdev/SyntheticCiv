@@ -11,6 +11,8 @@ const {
   distSq
 } = require("../scope");
 
+const MARKET_COMMODITIES = new Set(["food", "materials", "wealth"]);
+
 class AgentSimulationMethods {
   getSettlementById(id) {
     if (!id || id === "wild") return null;
@@ -132,6 +134,136 @@ class AgentSimulationMethods {
       sum += n.traits.aggression;
     }
     return sum / neighbors.length;
+  }
+
+
+  getMarketCommodityForInventoryType(resourceType) {
+    if (resourceType === "food") {
+      return "food";
+    }
+    if (resourceType === "ore" || resourceType === "fiber" || resourceType === "materials") {
+      return "materials";
+    }
+    if (resourceType === "wealth") {
+      return "wealth";
+    }
+    return "materials";
+  }
+
+
+  getAgentCommodityInventory(agent, commodity, inventoryOverride = null) {
+    const inv = inventoryOverride || agent.inventory || {};
+    if (commodity === "food") {
+      return Math.max(0, inv.food || 0);
+    }
+    if (commodity === "materials") {
+      return Math.max(0, (inv.ore || 0) + (inv.fiber || 0) + (inv.materials || 0));
+    }
+    return Math.max(0, inv.wealth || 0);
+  }
+
+
+  getSettlementMarketPrice(settlement, commodity) {
+    if (!settlement) {
+      return 1;
+    }
+    const price = settlement.market?.prices?.[commodity];
+    return clamp(Number.isFinite(price) ? price : 1, 0.25, 4);
+  }
+
+
+  getAgentNeedWeight(agent, commodity, settlement, inventoryOverride = null) {
+    if (commodity === "food") {
+      const qty = this.getAgentCommodityInventory(agent, "food", inventoryOverride);
+      const inventoryScarcity = clamp(1 - qty / 4.5, 0, 1);
+      const energyNeed = clamp((60 - (agent.energy || 0)) / 60, 0, 1);
+      const localStress = clamp(
+        (settlement?.resourceEMA?.foodStress ?? settlement?.economicStress ?? 0),
+        0,
+        1
+      );
+      return 1 + inventoryScarcity * 1.25 + energyNeed * 0.95 + localStress * 0.5;
+    }
+    if (commodity === "materials") {
+      const qty = this.getAgentCommodityInventory(agent, "materials", inventoryOverride);
+      const inventoryScarcity = clamp(1 - qty / 5.4, 0, 1);
+      const localStress = clamp(settlement?.resourceEMA?.materialStress || 0, 0, 1);
+      return 1 + inventoryScarcity * 1.05 + localStress * 0.48;
+    }
+    const pressure = clamp(settlement?.resourcePressure || 0, 0, 1);
+    return 1 + pressure * 0.3;
+  }
+
+
+  getAgentCommodityValue(agent, commodity, settlement, inventoryOverride = null) {
+    const price = this.getSettlementMarketPrice(settlement, commodity);
+    const needWeight = this.getAgentNeedWeight(agent, commodity, settlement, inventoryOverride);
+    return price * needWeight;
+  }
+
+
+  ensureSettlementMarketObservation(settlement) {
+    if (!settlement) {
+      return null;
+    }
+    if (!settlement.market || typeof settlement.market !== "object") {
+      settlement.market = {
+        prices: { food: 1, materials: 1, wealth: 1 },
+        volatility: 0.03,
+        lastUpdateTick: this.tick,
+        tickObs: {
+          attempts: { food: 0, materials: 0, wealth: 0 },
+          failures: { food: 0, materials: 0, wealth: 0 },
+          successObservedPriceSum: { food: 0, materials: 0, wealth: 0 },
+          successObservedPriceCount: { food: 0, materials: 0, wealth: 0 }
+        }
+      };
+    }
+    if (!settlement.market.tickObs || typeof settlement.market.tickObs !== "object") {
+      settlement.market.tickObs = {};
+    }
+    const obs = settlement.market.tickObs;
+    for (const key of ["attempts", "failures", "successObservedPriceSum", "successObservedPriceCount"]) {
+      if (!obs[key] || typeof obs[key] !== "object") {
+        obs[key] = {};
+      }
+    }
+    for (const type of MARKET_COMMODITIES) {
+      obs.attempts[type] = Math.max(0, Number.isFinite(obs.attempts[type]) ? obs.attempts[type] : 0);
+      obs.failures[type] = Math.max(0, Number.isFinite(obs.failures[type]) ? obs.failures[type] : 0);
+      obs.successObservedPriceSum[type] = Math.max(
+        0,
+        Number.isFinite(obs.successObservedPriceSum[type]) ? obs.successObservedPriceSum[type] : 0
+      );
+      obs.successObservedPriceCount[type] = Math.max(
+        0,
+        Number.isFinite(obs.successObservedPriceCount[type]) ? obs.successObservedPriceCount[type] : 0
+      );
+    }
+    return obs;
+  }
+
+
+  recordSettlementMarketObservation(settlementId, commodity, update = {}) {
+    if (!settlementId || settlementId === "wild" || !MARKET_COMMODITIES.has(commodity)) {
+      return;
+    }
+    const settlement = this.getSettlementById(settlementId);
+    const obs = this.ensureSettlementMarketObservation(settlement);
+    if (!obs) {
+      return;
+    }
+    if (update.attempt === true) {
+      obs.attempts[commodity] += 1;
+    }
+    if (update.failure === true) {
+      obs.failures[commodity] += 1;
+    }
+    const observedPrice = update.successObservedPrice;
+    if (Number.isFinite(observedPrice) && observedPrice > 0) {
+      obs.successObservedPriceSum[commodity] += observedPrice;
+      obs.successObservedPriceCount[commodity] += 1;
+    }
   }
 
 
@@ -801,10 +933,30 @@ class AgentSimulationMethods {
   }
 
   tryTrade(agentA, agentB, position) {
+    const settlementAId = this.getAgentSettlementId(agentA.id);
+    const settlementBId = this.getAgentSettlementId(agentB.id);
+    const settlementA = this.getSettlementById(settlementAId);
+    const settlementB = this.getSettlementById(settlementBId);
+    const desiredCommodityA = this.getMarketCommodityForInventoryType(agentB.preferredResource);
+    const desiredCommodityB = this.getMarketCommodityForInventoryType(agentA.preferredResource);
+    this.recordSettlementMarketObservation(settlementAId, desiredCommodityA, { attempt: true });
+    this.recordSettlementMarketObservation(settlementBId, desiredCommodityB, { attempt: true });
+
     const giveA = this.pickGiveResource(agentA, agentB.preferredResource);
     const giveB = this.pickGiveResource(agentB, agentA.preferredResource);
-    if (!giveA || !giveB) return false;
-    if (agentA.inventory[giveA] < 1 || agentB.inventory[giveB] < 1) return false;
+    if (!giveA || !giveB) {
+      this.recordSettlementMarketObservation(settlementAId, desiredCommodityA, { failure: true });
+      this.recordSettlementMarketObservation(settlementBId, desiredCommodityB, { failure: true });
+      return false;
+    }
+    if (agentA.inventory[giveA] < 1 || agentB.inventory[giveB] < 1) {
+      this.recordSettlementMarketObservation(settlementAId, desiredCommodityA, { failure: true });
+      this.recordSettlementMarketObservation(settlementBId, desiredCommodityB, { failure: true });
+      return false;
+    }
+
+    const giveCommodityA = this.getMarketCommodityForInventoryType(giveA);
+    const giveCommodityB = this.getMarketCommodityForInventoryType(giveB);
 
     const beforeA = this.computeUtility(agentA);
     const beforeB = this.computeUtility(agentB);
@@ -818,17 +970,31 @@ class AgentSimulationMethods {
 
     const afterA = this.computeUtility(agentA, invA);
     const afterB = this.computeUtility(agentB, invB);
-    if (afterA <= beforeA || afterB <= beforeB) return false;
+    const giveValueA = this.getAgentCommodityValue(agentA, giveCommodityA, settlementA);
+    const recvValueA = this.getAgentCommodityValue(agentA, giveCommodityB, settlementA, invA);
+    const giveValueB = this.getAgentCommodityValue(agentB, giveCommodityB, settlementB);
+    const recvValueB = this.getAgentCommodityValue(agentB, giveCommodityA, settlementB, invB);
+    const valueTolerance = 0.9;
+    const valueApproved = recvValueA >= giveValueA * valueTolerance && recvValueB >= giveValueB * valueTolerance;
+
+    if (afterA <= beforeA || afterB <= beforeB || !valueApproved) {
+      this.recordSettlementMarketObservation(settlementAId, desiredCommodityA, { failure: true });
+      this.recordSettlementMarketObservation(settlementBId, desiredCommodityB, { failure: true });
+      return false;
+    }
 
     agentA.inventory = invA;
     agentB.inventory = invB;
     agentA.energy = clamp(agentA.energy + 1.2, 0, 145);
     agentB.energy = clamp(agentB.energy + 1.2, 0, 145);
 
+    const observedPriceA = this.getSettlementMarketPrice(settlementA, giveCommodityA);
+    const observedPriceB = this.getSettlementMarketPrice(settlementB, giveCommodityB);
+    this.recordSettlementMarketObservation(settlementAId, giveCommodityB, { successObservedPrice: observedPriceA });
+    this.recordSettlementMarketObservation(settlementBId, giveCommodityA, { successObservedPrice: observedPriceB });
+
     applyAgentEvent(agentA, agentB, "trade", this.tick);
 
-    const settlementA = this.getAgentSettlementId(agentA.id);
-    const settlementB = this.getAgentSettlementId(agentB.id);
     const civA = this.getAgentCivilization(agentA.id);
     const civB = this.getAgentCivilization(agentB.id);
 
@@ -840,23 +1006,29 @@ class AgentSimulationMethods {
       resourceType: `${giveA}/${giveB}`,
       position,
       tick: this.tick,
-      settlementA,
-      settlementB,
+      settlementA: settlementAId,
+      settlementB: settlementBId,
       civA,
       civB
     });
 
     if (civA && civB && civA !== civB) {
-      this.registerAlignmentTradeEffects(settlementA, settlementB, civA, civB);
+      this.registerAlignmentTradeEffects(settlementAId, settlementBId, civA, civB);
     }
 
-    if (settlementA && settlementB && settlementA !== settlementB && settlementA !== "wild" && settlementB !== "wild") {
-      const fromSettlement = this.getSettlementById(settlementA);
-      const toSettlement = this.getSettlementById(settlementB);
+    if (
+      settlementAId &&
+      settlementBId &&
+      settlementAId !== settlementBId &&
+      settlementAId !== "wild" &&
+      settlementBId !== "wild"
+    ) {
+      const fromSettlement = this.getSettlementById(settlementAId);
+      const toSettlement = this.getSettlementById(settlementBId);
       if (!isSettlementActive(fromSettlement) || !isSettlementActive(toSettlement)) {
         return true;
       }
-      const routeKey = this.getRouteKeyBySettlements(settlementA, settlementB);
+      const routeKey = this.getRouteKeyBySettlements(settlementAId, settlementBId);
       if (!this.pairTradeWindows.has(routeKey)) {
         this.pairTradeWindows.set(routeKey, new RollingCounter(this.windowSize));
       }

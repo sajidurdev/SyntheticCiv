@@ -40,6 +40,21 @@ class StateSimulationMethods {
             wealth: Number((s.resources.wealth || 0).toFixed(3))
           }
           : defaultResources(s.population || 0),
+        market: s.market
+          ? {
+            prices: {
+              food: Number(((s.market.prices?.food ?? 1)).toFixed(6)),
+              materials: Number(((s.market.prices?.materials ?? 1)).toFixed(6)),
+              wealth: Number(((s.market.prices?.wealth ?? 1)).toFixed(6))
+            },
+            volatility: Number(((s.market.volatility ?? 0.03)).toFixed(6)),
+            lastUpdateTick: Number.isFinite(s.market.lastUpdateTick) ? s.market.lastUpdateTick : 0
+          }
+          : {
+            prices: { food: 1, materials: 1, wealth: 1 },
+            volatility: 0.03,
+            lastUpdateTick: 0
+          },
         resourceEMA: s.resourceEMA
           ? {
             foodStress: Number(((s.resourceEMA.foodStress || 0)).toFixed(4)),
@@ -247,6 +262,21 @@ class StateSimulationMethods {
         frontierPressure: s.frontierPressure || 0,
         frontierPressureRaw: s.frontierPressureRaw || 0,
         resources: s.resources || defaultResources(s.population || 0),
+        market: s.market
+          ? {
+            prices: {
+              food: Number.isFinite(s.market.prices?.food) ? s.market.prices.food : 1,
+              materials: Number.isFinite(s.market.prices?.materials) ? s.market.prices.materials : 1,
+              wealth: Number.isFinite(s.market.prices?.wealth) ? s.market.prices.wealth : 1
+            },
+            volatility: Number.isFinite(s.market.volatility) ? s.market.volatility : 0.03,
+            lastUpdateTick: Number.isFinite(s.market.lastUpdateTick) ? s.market.lastUpdateTick : keyframe.tick
+          }
+          : {
+            prices: { food: 1, materials: 1, wealth: 1 },
+            volatility: 0.03,
+            lastUpdateTick: keyframe.tick
+          },
         resourceEMA: s.resourceEMA || { foodStress: 0, materialStress: 0 },
         birthMultiplier: s.birthMultiplier ?? 1,
         conflictSensitivity: s.conflictSensitivity || 0,

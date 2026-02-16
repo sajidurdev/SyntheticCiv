@@ -36,6 +36,28 @@ function summarizeRuns(runs, key) {
   };
 }
 
+function pearsonCorrelation(xs, ys) {
+  if (!Array.isArray(xs) || !Array.isArray(ys) || xs.length !== ys.length || xs.length < 2) {
+    return 0;
+  }
+  const mx = safeMean(xs);
+  const my = safeMean(ys);
+  let cov = 0;
+  let vx = 0;
+  let vy = 0;
+  for (let i = 0; i < xs.length; i += 1) {
+    const dx = (xs[i] || 0) - mx;
+    const dy = (ys[i] || 0) - my;
+    cov += dx * dy;
+    vx += dx * dx;
+    vy += dy * dy;
+  }
+  if (vx <= 1e-12 || vy <= 1e-12) {
+    return 0;
+  }
+  return cov / Math.sqrt(vx * vy);
+}
+
 function sampleSettlementAverages(sim) {
   const active = sim.settlements.filter((s) => Array.isArray(s.members) ? s.members.length > 0 : (s.population || 0) > 0);
   if (!active.length) {
@@ -44,16 +66,40 @@ function sampleSettlementAverages(sim) {
       avgStability: 0,
       avgPressure: 0,
       avgFoodStress: 0,
-      activeSettlementCount: 0
+      activeSettlementCount: 0,
+      avgMarketIndex: 1,
+      foodPriceVariance: 0,
+      maxMarketPrice: 1,
+      minMarketPrice: 1
     };
   }
+  const foodPrices = active.map((s) => s.market?.prices?.food ?? 1);
+  const materialPrices = active.map((s) => s.market?.prices?.materials ?? 1);
+  const wealthPrices = active.map((s) => s.market?.prices?.wealth ?? 1);
+  const foodMean = safeMean(foodPrices);
+  const foodPriceVariance = safeMean(foodPrices.map((p) => {
+    const d = p - foodMean;
+    return d * d;
+  }));
+  const avgMarketIndex = safeMean(active.map((s) => {
+    const prices = s.market?.prices || {};
+    return (
+      (prices.food ?? 1) +
+      (prices.materials ?? 1) +
+      (prices.wealth ?? 1)
+    ) / 3;
+  }));
   const denom = active.length;
   return {
     avgConflictRate: active.reduce((acc, s) => acc + (s.conflictRate || 0), 0) / denom,
     avgStability: active.reduce((acc, s) => acc + (s.stability || s.stabilityScore || 0), 0) / denom,
     avgPressure: active.reduce((acc, s) => acc + (s.resourcePressure || 0), 0) / denom,
     avgFoodStress: active.reduce((acc, s) => acc + (s.resourceEMA?.foodStress || 0), 0) / denom,
-    activeSettlementCount: active.length
+    activeSettlementCount: active.length,
+    avgMarketIndex,
+    foodPriceVariance,
+    maxMarketPrice: Math.max(...foodPrices, ...materialPrices, ...wealthPrices),
+    minMarketPrice: Math.min(...foodPrices, ...materialPrices, ...wealthPrices)
   };
 }
 
@@ -87,6 +133,22 @@ function evaluateBands(run) {
     key: "interactionUtilization",
     pass: run.interactionUtilization >= 0.2 && run.interactionUtilization <= 1.01
   });
+  checks.push({
+    key: "marketPriceBounds",
+    pass: run.minMarketPrice >= 0.24 && run.maxMarketPrice <= 4.05
+  });
+  checks.push({
+    key: "marketVariance",
+    pass: run.activeSettlementCount < 1.5 || run.avgFoodPriceVariance >= 0.00001
+  });
+  checks.push({
+    key: "marketIndex",
+    pass: run.avgMarketIndex >= 0.45 && run.avgMarketIndex <= 2.2
+  });
+  checks.push({
+    key: "routeGapTradeCorr",
+    pass: run.avgRoutePriceGap <= 1e-6 || run.routeGapTradeCorr >= -0.2
+  });
   return checks;
 }
 
@@ -118,6 +180,10 @@ function runSingle(config, seed) {
   const avgPressure = safeMean(sampled.map((s) => s.avgPressure));
   const avgFoodStress = safeMean(sampled.map((s) => s.avgFoodStress));
   const activeSettlementCount = safeMean(sampled.map((s) => s.activeSettlementCount));
+  const avgMarketIndex = safeMean(sampled.map((s) => s.avgMarketIndex));
+  const avgFoodPriceVariance = safeMean(sampled.map((s) => s.foodPriceVariance));
+  const maxMarketPrice = sampled.length ? Math.max(...sampled.map((s) => s.maxMarketPrice)) : 1;
+  const minMarketPrice = sampled.length ? Math.min(...sampled.map((s) => s.minMarketPrice)) : 1;
 
   const totals = sim.populationCounterTotals || {};
   const births = totals.spawnedBirth || 0;
@@ -129,6 +195,12 @@ function runSingle(config, seed) {
   const interactionUtilization = (interaction.globalPairCap || 0) > 0
     ? (interaction.processedPairs || 0) / interaction.globalPairCap
     : 0;
+  const routes = sim.buildTradeRoutes();
+  const routeGapTradeCorr = pearsonCorrelation(
+    routes.map((r) => r.routePriceGap || 0),
+    routes.map((r) => r.tradeVolume || 0)
+  );
+  const avgRoutePriceGap = safeMean(routes.map((r) => r.routePriceGap || 0));
 
   const eras = sim.getEraHistorySnapshot(300);
   const eraCount = Array.isArray(eras?.eras) ? eras.eras.length : 0;
@@ -146,6 +218,12 @@ function runSingle(config, seed) {
     avgPressure,
     avgFoodStress,
     activeSettlementCount,
+    avgMarketIndex,
+    avgFoodPriceVariance,
+    maxMarketPrice,
+    minMarketPrice,
+    routeGapTradeCorr,
+    avgRoutePriceGap,
     interactionUtilization,
     interactionPairsProcessed: interaction.processedPairs || 0,
     interactionPairCap: interaction.globalPairCap || 0,
@@ -201,7 +279,11 @@ function main() {
     avgPressure: summarizeRuns(runs, "avgPressure"),
     avgFoodStress: summarizeRuns(runs, "avgFoodStress"),
     interactionUtilization: summarizeRuns(runs, "interactionUtilization"),
-    activeSettlementCount: summarizeRuns(runs, "activeSettlementCount")
+    activeSettlementCount: summarizeRuns(runs, "activeSettlementCount"),
+    avgMarketIndex: summarizeRuns(runs, "avgMarketIndex"),
+    avgFoodPriceVariance: summarizeRuns(runs, "avgFoodPriceVariance"),
+    routeGapTradeCorr: summarizeRuns(runs, "routeGapTradeCorr"),
+    avgRoutePriceGap: summarizeRuns(runs, "avgRoutePriceGap")
   };
 
   console.log("");
@@ -215,6 +297,10 @@ function main() {
   console.log(formatMetric("avgFoodStress", summary.avgFoodStress));
   console.log(formatMetric("interactionUtilization", summary.interactionUtilization));
   console.log(formatMetric("activeSettlementCount", summary.activeSettlementCount));
+  console.log(formatMetric("avgMarketIndex", summary.avgMarketIndex));
+  console.log(formatMetric("avgFoodPriceVariance", summary.avgFoodPriceVariance));
+  console.log(formatMetric("routeGapTradeCorr", summary.routeGapTradeCorr));
+  console.log(formatMetric("avgRoutePriceGap", summary.avgRoutePriceGap));
 
   const passCount = runs.filter((r) => r.passed).length;
   const passRate = passCount / Math.max(1, runs.length);

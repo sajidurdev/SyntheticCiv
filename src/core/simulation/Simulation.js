@@ -137,7 +137,24 @@ class Simulation {
       kTradeMat: config.econTradeMaterials || 0.5,
       kTradeWealth: config.econTradeWealth || 0.3,
       maxTradeFoodPerRoute: config.econMaxTradeFoodPerRoute || 2.5,
-      maxTradeMatPerRoute: config.econMaxTradeMatPerRoute || 1.4
+      maxTradeMatPerRoute: config.econMaxTradeMatPerRoute || 1.4,
+      wealthPerCapTarget: config.econWealthPerCapTarget || 2.2,
+      marketBaselinePrice: config.econMarketBaselinePrice || 1,
+      marketBaseVolatility: config.econMarketBaseVolatility || 0.03,
+      marketPriceMin: config.econMarketPriceMin || 0.25,
+      marketPriceMax: config.econMarketPriceMax || 4,
+      marketPriceEmaAlpha: config.econMarketPriceEmaAlpha || 0.06,
+      marketStepSize: config.econMarketStepSize || 0.22,
+      marketFailureWeight: config.econMarketFailureWeight || 0.45,
+      marketScarcityWeight: config.econMarketScarcityWeight || 0.28,
+      marketDiscountWeight: config.econMarketDiscountWeight || 0.4,
+      marketMeanRevert: config.econMarketMeanRevert || 0.2,
+      marketTariffWeight: config.econMarketTariffWeight || 0.22,
+      marketLogisticsRelief: config.econMarketLogisticsRelief || 0.18,
+      marketFailurePseudoCount: config.econMarketFailurePseudoCount || 2,
+      marketFailureAttemptsScale: config.econMarketFailureAttemptsScale || 10,
+      marketScarcitySoftening: config.econMarketScarcitySoftening || 0.7,
+      marketCapDrag: config.econMarketCapDrag || 0.32
     };
     this.fissionConfig = {
       pressureThreshold: config.fissionPressureThreshold || 0.8,
@@ -235,6 +252,8 @@ class Simulation {
       maxMomentum: config.routeMomentumMax || 4.5,
       pruneAfterIdleTicks: config.routeMomentumPruneAfterIdleTicks || (this.windowSize * 2)
     };
+    this.routePriceGapDemandScale = config.routePriceGapDemandScale || 0.22;
+    this.routePriceGapMomentumScale = config.routePriceGapMomentumScale || 0.0035;
     this.influenceConfig = {
       sigma: config.influenceSigma || 120,
       closestK: config.influenceClosestK || 3,
@@ -953,6 +972,25 @@ class Simulation {
             wealth: s.resources.wealth || 0
           }
           : defaultResources(s.population || 0),
+        market: s.market
+          ? {
+            prices: {
+              food: s.market.prices?.food ?? 1,
+              materials: s.market.prices?.materials ?? 1,
+              wealth: s.market.prices?.wealth ?? 1
+            },
+            volatility: s.market.volatility ?? 0.03,
+            lastUpdateTick: Number.isFinite(s.market.lastUpdateTick) ? s.market.lastUpdateTick : this.tick,
+            tickObs: s.market.tickObs
+              ? {
+                attempts: { ...(s.market.tickObs.attempts || {}) },
+                failures: { ...(s.market.tickObs.failures || {}) },
+                successObservedPriceSum: { ...(s.market.tickObs.successObservedPriceSum || {}) },
+                successObservedPriceCount: { ...(s.market.tickObs.successObservedPriceCount || {}) }
+              }
+              : undefined
+          }
+          : undefined,
         resourceEMA: s.resourceEMA
           ? {
             foodStress: s.resourceEMA.foodStress || 0,

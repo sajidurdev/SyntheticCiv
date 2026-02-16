@@ -6,6 +6,8 @@ function clamp01(value) {
   return clamp(value, 0, 1);
 }
 
+const MARKET_COMMODITIES = ["food", "materials", "wealth"];
+
 function popValue(settlement) {
   if (Array.isArray(settlement.members)) {
     return settlement.members.length;
@@ -22,7 +24,71 @@ function defaultResources(population) {
   };
 }
 
-function ensureSettlementEconomyState(settlement) {
+function createEmptyMarketObservation() {
+  const attempts = {};
+  const failures = {};
+  const successObservedPriceSum = {};
+  const successObservedPriceCount = {};
+  for (const type of MARKET_COMMODITIES) {
+    attempts[type] = 0;
+    failures[type] = 0;
+    successObservedPriceSum[type] = 0;
+    successObservedPriceCount[type] = 0;
+  }
+  return {
+    attempts,
+    failures,
+    successObservedPriceSum,
+    successObservedPriceCount
+  };
+}
+
+function ensureMarketObservationShape(market) {
+  if (!market.tickObs || typeof market.tickObs !== "object") {
+    market.tickObs = createEmptyMarketObservation();
+    return;
+  }
+  const obs = market.tickObs;
+  for (const key of ["attempts", "failures", "successObservedPriceSum", "successObservedPriceCount"]) {
+    if (!obs[key] || typeof obs[key] !== "object") {
+      obs[key] = {};
+    }
+  }
+  for (const type of MARKET_COMMODITIES) {
+    obs.attempts[type] = Math.max(0, Number.isFinite(obs.attempts[type]) ? obs.attempts[type] : 0);
+    obs.failures[type] = Math.max(0, Number.isFinite(obs.failures[type]) ? obs.failures[type] : 0);
+    obs.successObservedPriceSum[type] = Math.max(
+      0,
+      Number.isFinite(obs.successObservedPriceSum[type]) ? obs.successObservedPriceSum[type] : 0
+    );
+    obs.successObservedPriceCount[type] = Math.max(
+      0,
+      Number.isFinite(obs.successObservedPriceCount[type]) ? obs.successObservedPriceCount[type] : 0
+    );
+  }
+}
+
+function ensureSettlementMarketState(settlement, options = {}) {
+  const baseline = Number.isFinite(options.marketBaselinePrice) ? options.marketBaselinePrice : 1;
+  const minPrice = Number.isFinite(options.marketPriceMin) ? options.marketPriceMin : 0.25;
+  const maxPrice = Number.isFinite(options.marketPriceMax) ? options.marketPriceMax : 4;
+  const baseVolatility = Number.isFinite(options.marketBaseVolatility) ? options.marketBaseVolatility : 0.03;
+  const existing = settlement.market && typeof settlement.market === "object" ? settlement.market : {};
+  const existingPrices = existing.prices && typeof existing.prices === "object" ? existing.prices : {};
+  settlement.market = {
+    prices: {
+      food: clamp(Number.isFinite(existingPrices.food) ? existingPrices.food : baseline, minPrice, maxPrice),
+      materials: clamp(Number.isFinite(existingPrices.materials) ? existingPrices.materials : baseline, minPrice, maxPrice),
+      wealth: clamp(Number.isFinite(existingPrices.wealth) ? existingPrices.wealth : baseline, minPrice, maxPrice)
+    },
+    volatility: clamp(Number.isFinite(existing.volatility) ? existing.volatility : baseVolatility, 0.002, 0.25),
+    lastUpdateTick: Math.max(0, Math.floor(existing.lastUpdateTick || 0)),
+    tickObs: existing.tickObs || createEmptyMarketObservation()
+  };
+  ensureMarketObservationShape(settlement.market);
+}
+
+function ensureSettlementEconomyState(settlement, options = {}) {
   const pop = popValue(settlement);
   const defaults = defaultResources(pop);
   const resources = settlement.resources || {};
@@ -51,6 +117,7 @@ function ensureSettlementEconomyState(settlement) {
     0,
     0.1
   );
+  ensureSettlementMarketState(settlement, options);
 }
 
 function storageCap(population, popFactor, type) {
@@ -108,6 +175,79 @@ function deriveEconomicProfile(settlement, foodPerCap, matPerCap, wealthPerCap) 
   return "Balanced";
 }
 
+function scarcityPressureForCommodity(settlement, type, cfg) {
+  const pop = Math.max(1, popValue(settlement));
+  if (type === "food") {
+    const perCap = settlement.resources.food / pop;
+    return clamp01((cfg.foodPerCapTarget - perCap) / Math.max(0.01, cfg.foodPerCapTarget));
+  }
+  if (type === "materials") {
+    const perCap = settlement.resources.materials / pop;
+    return clamp01((cfg.matPerCapTarget - perCap) / Math.max(0.01, cfg.matPerCapTarget));
+  }
+  const perCap = settlement.resources.wealth / pop;
+  return clamp01((cfg.wealthPerCapTarget - perCap) / Math.max(0.01, cfg.wealthPerCapTarget));
+}
+
+function clearMarketObservation(settlement) {
+  if (!settlement.market) {
+    return;
+  }
+  settlement.market.tickObs = createEmptyMarketObservation();
+}
+
+function updateSettlementMarketPrices(settlement, cfg) {
+  ensureSettlementMarketState(settlement, cfg);
+  const market = settlement.market;
+  ensureMarketObservationShape(market);
+  const obs = market.tickObs;
+  const tariffRate = clamp01(settlement.policyEffects?.tariffRate ?? 0.5);
+  const logisticsRange = clamp(settlement.innovationEffects?.tradeRangeMult || 1, 0.7, 1.8);
+  const logisticsRelief = Math.max(0, logisticsRange - 1) * cfg.marketLogisticsRelief;
+
+  for (const type of MARKET_COMMODITIES) {
+    const currentPrice = clamp(market.prices[type], cfg.marketPriceMin, cfg.marketPriceMax);
+    const attempts = Math.max(0, obs.attempts[type] || 0);
+    const failures = Math.max(0, obs.failures[type] || 0);
+    const successPriceSum = Math.max(0, obs.successObservedPriceSum[type] || 0);
+    const successPriceCount = Math.max(0, obs.successObservedPriceCount[type] || 0);
+    const failRateRaw = attempts > 0
+      ? clamp01(failures / Math.max(1, attempts + cfg.marketFailurePseudoCount))
+      : 0;
+    const failSignalStrength = clamp01(attempts / Math.max(1, cfg.marketFailureAttemptsScale));
+    const failRate = failRateRaw * failSignalStrength;
+    const observedPrice = successPriceCount > 0 ? successPriceSum / successPriceCount : currentPrice;
+    const observedDiscount = clamp((currentPrice - observedPrice) / Math.max(1e-6, currentPrice), -1, 1);
+    const scarcityRaw = scarcityPressureForCommodity(settlement, type, cfg);
+    const scarcity = scarcityRaw * (1 - cfg.marketScarcitySoftening * scarcityRaw);
+    const meanRevert = cfg.marketMeanRevert * (cfg.marketBaselinePrice - currentPrice);
+    const tariffPressure = (tariffRate - 0.5) * cfg.marketTariffWeight;
+    const capProximity = clamp01(
+      (currentPrice - cfg.marketBaselinePrice) / Math.max(1e-6, cfg.marketPriceMax - cfg.marketBaselinePrice)
+    );
+
+    const pressure =
+      cfg.marketFailureWeight * failRate +
+      cfg.marketScarcityWeight * scarcity -
+      cfg.marketDiscountWeight * observedDiscount +
+      meanRevert +
+      tariffPressure -
+      logisticsRelief -
+      capProximity * cfg.marketCapDrag;
+
+    const targetPrice = clamp(
+      currentPrice * Math.exp(cfg.marketStepSize * market.volatility * pressure),
+      cfg.marketPriceMin,
+      cfg.marketPriceMax
+    );
+    const nextPrice = currentPrice + (targetPrice - currentPrice) * cfg.marketPriceEmaAlpha;
+    market.prices[type] = Number(clamp(nextPrice, cfg.marketPriceMin, cfg.marketPriceMax).toFixed(6));
+  }
+
+  market.lastUpdateTick = cfg.tick;
+  clearMarketObservation(settlement);
+}
+
 function economyStep(settlements, tradeRoutes, options = {}) {
   const cfg = {
     kFood: options.kFood ?? 1.6,
@@ -123,12 +263,30 @@ function economyStep(settlements, tradeRoutes, options = {}) {
     kTradeMat: options.kTradeMat ?? 0.5,
     kTradeWealth: options.kTradeWealth ?? 0.3,
     maxTradeFoodPerRoute: options.maxTradeFoodPerRoute ?? 2.5,
-    maxTradeMatPerRoute: options.maxTradeMatPerRoute ?? 1.4
+    maxTradeMatPerRoute: options.maxTradeMatPerRoute ?? 1.4,
+    wealthPerCapTarget: options.wealthPerCapTarget ?? 2.2,
+    marketBaselinePrice: options.marketBaselinePrice ?? 1,
+    marketBaseVolatility: options.marketBaseVolatility ?? 0.03,
+    marketPriceMin: options.marketPriceMin ?? 0.25,
+    marketPriceMax: options.marketPriceMax ?? 4,
+    marketPriceEmaAlpha: options.marketPriceEmaAlpha ?? 0.06,
+    marketStepSize: options.marketStepSize ?? 0.22,
+    marketFailureWeight: options.marketFailureWeight ?? 0.45,
+    marketScarcityWeight: options.marketScarcityWeight ?? 0.28,
+    marketDiscountWeight: options.marketDiscountWeight ?? 0.4,
+    marketMeanRevert: options.marketMeanRevert ?? 0.2,
+    marketTariffWeight: options.marketTariffWeight ?? 0.22,
+    marketLogisticsRelief: options.marketLogisticsRelief ?? 0.18,
+    marketFailurePseudoCount: options.marketFailurePseudoCount ?? 2,
+    marketFailureAttemptsScale: options.marketFailureAttemptsScale ?? 10,
+    marketScarcitySoftening: options.marketScarcitySoftening ?? 0.7,
+    marketCapDrag: options.marketCapDrag ?? 0.32,
+    tick: Number.isFinite(options.tick) ? options.tick : 0
   };
 
   const byId = new Map();
   for (const settlement of settlements) {
-    ensureSettlementEconomyState(settlement);
+    ensureSettlementEconomyState(settlement, cfg);
     byId.set(settlement.id, settlement);
   }
 
@@ -380,6 +538,7 @@ function economyStep(settlements, tradeRoutes, options = {}) {
     settlement.foodPerCap = Number(foodPerCap.toFixed(4));
     settlement.materialsPerCap = Number(matPerCap.toFixed(4));
     settlement.wealthPerCap = Number(wealthPerCap.toFixed(4));
+    updateSettlementMarketPrices(settlement, cfg);
   }
 
   for (const settlement of settlements) {
@@ -409,11 +568,14 @@ function economyStep(settlements, tradeRoutes, options = {}) {
     settlement.foodPerCap = 0;
     settlement.materialsPerCap = 0;
     settlement.wealthPerCap = 0;
+    settlement.market.lastUpdateTick = cfg.tick;
+    clearMarketObservation(settlement);
   }
 }
 
 module.exports = {
   economyStep,
   ensureSettlementEconomyState,
+  ensureSettlementMarketState,
   defaultResources
 };

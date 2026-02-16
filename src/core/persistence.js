@@ -66,6 +66,17 @@ function buildKeyframe(sim) {
           wealth: s.resources.wealth ?? 0
         }
         : null,
+      market: s.market
+        ? {
+          prices: {
+            food: s.market.prices?.food ?? 1,
+            materials: s.market.prices?.materials ?? 1,
+            wealth: s.market.prices?.wealth ?? 1
+          },
+          volatility: s.market.volatility ?? 0.03,
+          lastUpdateTick: s.market.lastUpdateTick ?? sim.tick
+        }
+        : null,
       resourceEMA: s.resourceEMA
         ? {
           foodStress: s.resourceEMA.foodStress ?? 0,

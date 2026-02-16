@@ -267,6 +267,25 @@ class SettlementSimulationMethods {
         stabilityScore: 0,
         growthRate: 0,
         resources: best?.resources || defaultResources(cluster.length),
+        market: best?.market
+          ? {
+            prices: {
+              food: best.market.prices?.food ?? 1,
+              materials: best.market.prices?.materials ?? 1,
+              wealth: best.market.prices?.wealth ?? 1
+            },
+            volatility: best.market.volatility ?? 0.03,
+            lastUpdateTick: best.market.lastUpdateTick ?? this.tick,
+            tickObs: best.market.tickObs
+              ? {
+                attempts: { ...(best.market.tickObs.attempts || {}) },
+                failures: { ...(best.market.tickObs.failures || {}) },
+                successObservedPriceSum: { ...(best.market.tickObs.successObservedPriceSum || {}) },
+                successObservedPriceCount: { ...(best.market.tickObs.successObservedPriceCount || {}) }
+              }
+              : undefined
+          }
+          : undefined,
         resourceEMA: best?.resourceEMA || { foodStress: 0, materialStress: 0 },
         birthMultiplier: best?.birthMultiplier ?? 1,
         conflictSensitivity: best?.conflictSensitivity ?? 0,

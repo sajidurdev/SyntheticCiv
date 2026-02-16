@@ -126,6 +126,7 @@ class CivilizationSimulationMethods {
     );
     const childAvgEnergy = Math.max(0, (parent.avgEnergy || 0) * 0.6);
     const childDefaults = defaultResources(splitAgents.length);
+    const parentMarketPrices = parent.market?.prices || {};
     const supportStrength = clamp(this.fissionConfig.childSupportStrength || 0.22, 0, 0.4);
     const supportTicks = Math.max(1, Math.floor(this.fissionConfig.childSupportTicks || 900));
     const postSplitProtectionUntil = this.tick + supportTicks;
@@ -160,6 +161,21 @@ class CivilizationSimulationMethods {
         food: childDefaults.food * (1 + supportStrength * 1.4),
         materials: childDefaults.materials * (1 + supportStrength),
         wealth: childDefaults.wealth * (1 + supportStrength * 0.8)
+      },
+      market: {
+        prices: {
+          food: Number.isFinite(parentMarketPrices.food) ? parentMarketPrices.food : 1,
+          materials: Number.isFinite(parentMarketPrices.materials) ? parentMarketPrices.materials : 1,
+          wealth: Number.isFinite(parentMarketPrices.wealth) ? parentMarketPrices.wealth : 1
+        },
+        volatility: Number.isFinite(parent.market?.volatility) ? parent.market.volatility : 0.03,
+        lastUpdateTick: this.tick,
+        tickObs: {
+          attempts: { food: 0, materials: 0, wealth: 0 },
+          failures: { food: 0, materials: 0, wealth: 0 },
+          successObservedPriceSum: { food: 0, materials: 0, wealth: 0 },
+          successObservedPriceCount: { food: 0, materials: 0, wealth: 0 }
+        }
       },
       resourceEMA: { foodStress: 0, materialStress: 0 },
       birthMultiplier: clamp(0.9 + supportStrength * 0.3, 0.85, 1),
@@ -813,6 +829,44 @@ class CivilizationSimulationMethods {
   }
 
 
+  getSettlementMarketPrice(settlement, commodity) {
+    const value = settlement?.market?.prices?.[commodity];
+    return clamp(Number.isFinite(value) ? value : 1, 0.25, 4);
+  }
+
+
+  computeRoutePriceGap(fromSettlement, toSettlement) {
+    const weights = {
+      food: 0.42,
+      materials: 0.38,
+      wealth: 0.2
+    };
+    let gap = 0;
+    for (const commodity of Object.keys(weights)) {
+      const pFrom = this.getSettlementMarketPrice(fromSettlement, commodity);
+      const pTo = this.getSettlementMarketPrice(toSettlement, commodity);
+      const logRatio = Math.abs(Math.log(pFrom / Math.max(1e-6, pTo)));
+      gap += logRatio * weights[commodity];
+    }
+    return clamp(gap, 0, 2.5);
+  }
+
+
+  computeRouteArbitrageScore(fromSettlement, toSettlement, distanceCost, tariffMult) {
+    const priceGap = this.computeRoutePriceGap(fromSettlement, toSettlement);
+    const avgLogistics = clamp(
+      (
+        (fromSettlement.innovationEffects?.tradeRangeMult || 1) +
+        (toSettlement.innovationEffects?.tradeRangeMult || 1)
+      ) * 0.5,
+      0.75,
+      1.7
+    );
+    const logisticsFactor = clamp(0.82 + (avgLogistics - 1) * 0.85, 0.6, 1.35);
+    return clamp(priceGap * distanceCost * tariffMult * logisticsFactor, 0, 3.2);
+  }
+
+
   buildTradeRoutes() {
     const settlementById = new Map(this.settlements.map((s) => [s.id, s]));
     const routes = [];
@@ -862,11 +916,25 @@ class CivilizationSimulationMethods {
         1.35
       );
       const routeReliability = clamp(distanceReliability * tariffMult * shockMult * innovationReliability, 0.22, 1.3);
-      const volume = rawVolume * (1 + routeMomentum * this.tradeMomentumConfig.volumeScale) * routeReliability * distanceCost;
+      const routePriceGap = this.computeRoutePriceGap(fromSettlement, toSettlement);
+      const routeArbitrageScore = this.computeRouteArbitrageScore(
+        fromSettlement,
+        toSettlement,
+        distanceCost,
+        tariffMult
+      );
+      const priceGapDemandMult = 1 + routeArbitrageScore * this.routePriceGapDemandScale;
+      const volume =
+        rawVolume *
+        (1 + routeMomentum * this.tradeMomentumConfig.volumeScale) *
+        routeReliability *
+        distanceCost *
+        priceGapDemandMult;
 
       routes.push({
         from,
         to,
+        routeKey: key,
         rawTradeVolume: Number(rawVolume.toFixed(3)),
         tradeVolume: Number(volume.toFixed(3)),
         trades: Number(volume.toFixed(2)),
@@ -876,6 +944,8 @@ class CivilizationSimulationMethods {
         routeTariffFriction: Number(tariffMult.toFixed(4)),
         routeShockReliability: Number(shockMult.toFixed(4)),
         routeInnovationReliability: Number(innovationReliability.toFixed(4)),
+        routePriceGap: Number(routePriceGap.toFixed(5)),
+        routeArbitrageScore: Number(routeArbitrageScore.toFixed(5)),
         routeMomentum: Number(routeMomentum.toFixed(4)),
         routeAge: Math.max(0, Math.floor(routeAge)),
         fromPosition: fromPos,
@@ -883,7 +953,15 @@ class CivilizationSimulationMethods {
       });
     }
 
-    routes.sort((a, b) => b.tradeVolume - a.tradeVolume);
+    routes.sort((a, b) => {
+      const diff = b.tradeVolume - a.tradeVolume;
+      if (Math.abs(diff) > 1e-9) {
+        return diff;
+      }
+      return String(a.routeKey || `${a.from}|${a.to}`).localeCompare(
+        String(b.routeKey || `${b.from}|${b.to}`)
+      );
+    });
     return routes;
   }
 

@@ -51,7 +51,7 @@ class SystemSimulationMethods {
 
 
   runEconomyStep(tradeRoutes = this.buildTradeRoutes()) {
-    economyStep(this.settlements, tradeRoutes, this.economyConfig);
+    economyStep(this.settlements, tradeRoutes, { ...this.economyConfig, tick: this.tick });
     this.conflictSensitivityBySettlement.clear();
     for (const settlement of this.settlements) {
       this.conflictSensitivityBySettlement.set(
@@ -265,6 +265,28 @@ class SystemSimulationMethods {
         );
         entry.routeMomentum = clamp(
           entry.routeMomentum - instability * this.tradeMomentumConfig.instabilityDecayRate * ageResilience,
+          0,
+          this.tradeMomentumConfig.maxMomentum
+        );
+
+        const priceGap = this.computeRoutePriceGap(a, b);
+        const avgTariff = (
+          (this.tariffRateBySettlement.get(a.id) ?? 0.5) +
+          (this.tariffRateBySettlement.get(b.id) ?? 0.5)
+        ) * 0.5;
+        const tariffExploitability = clamp(1 - avgTariff * 0.28, 0.55, 1.05);
+        const avgLogistics = clamp(
+          (
+            (a.innovationEffects?.tradeRangeMult || 1) +
+            (b.innovationEffects?.tradeRangeMult || 1)
+          ) * 0.5,
+          0.75,
+          1.7
+        );
+        const logisticsBoost = clamp(0.9 + (avgLogistics - 1) * 0.6, 0.65, 1.25);
+        const arbitragePersistence = priceGap * tariffExploitability * logisticsBoost;
+        entry.routeMomentum = clamp(
+          entry.routeMomentum + arbitragePersistence * this.routePriceGapMomentumScale * ageResilience,
           0,
           this.tradeMomentumConfig.maxMomentum
         );
